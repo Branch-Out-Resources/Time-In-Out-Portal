@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time In / Time Out — Branch Out Resources OPC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  background: #f0f4f8;
+  color: #1a1a1a;
+  min-height: 100vh;
+}
+
+/* ── Setup banner ── */
+.setup-banner {
+  background: #fff3cd; border-bottom: 2px solid #ffc107;
+  padding: 12px 28px; font-size: 9.5pt; color: #664d03;
+  display: flex; align-items: center; gap: 10px;
+}
+.setup-banner strong { color: #333; }
+.setup-banner a { color: #1F4E79; font-weight: bold; }
+
+/* ── Status bar ── */
+.status-bar {
+  display: none;
+  padding: 7px 28px; font-size: 8.5pt; font-weight: bold;
+  align-items: center; gap: 8px;
+}
+.status-bar.loading { display: flex; background: #EBF3FB; color: #1F4E79; }
+.status-bar.error   { display: flex; background: #fde8e8; color: #c0392b; }
+.status-bar.ok      { display: flex; background: #E8F5E9; color: #1a7a4a; }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(0,0,0,.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Login overlay ── */
+#login-overlay {
+  position: fixed; inset: 0;
+  background: #1F4E79;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.login-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 40px 36px 32px;
+  width: 340px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.25);
+  text-align: center;
+}
+.login-box .logo {
+  width: 56px; height: 56px;
+  background: #1F4E79; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px;
+  font-size: 22pt; font-weight: bold; color: #fff;
+}
+.login-box h2 { font-size: 14pt; color: #1F4E79; margin-bottom: 4px; }
+.login-box p  { font-size: 9pt; color: #777; margin-bottom: 24px; }
+.login-box input[type=password] {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid #C5D8EC;
+  border-radius: 6px;
+  font-size: 14pt;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 4px;
+  text-align: center;
+  text-transform: uppercase;
+  outline: none; color: #1F4E79;
+  margin-bottom: 12px;
+}
+.login-box input[type=password]:focus { border-color: #1F4E79; }
+.login-box .btn-login {
+  width: 100%; padding: 11px;
+  background: #1F4E79; color: #fff;
+  border: none; border-radius: 6px;
+  font-size: 11pt; font-weight: bold;
+  cursor: pointer; font-family: Arial, sans-serif;
+}
+.login-box .btn-login:hover { background: #163a5c; }
+.login-error { color: #c0392b; font-size: 9pt; margin-top: 8px; display: none; }
+.login-hint  { font-size: 8.5pt; color: #aaa; margin-top: 14px; }
+
+/* ── Top bar ── */
+.top-bar {
+  background: #1F4E79; color: #fff;
+  padding: 14px 28px;
+  display: flex; align-items: center; gap: 14px;
+}
+.top-bar h1 { font-size: 13pt; font-weight: bold; }
+.top-bar p  { font-size: 8.5pt; opacity: .8; margin-top: 2px; }
+.user-badge {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 10px; font-size: 9.5pt;
+}
+.user-badge .name { font-weight: bold; }
+.user-badge .role { font-size: 8pt; opacity: .75; }
+.btn-logout {
+  padding: 5px 12px;
+  background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 4px; color: #fff;
+  cursor: pointer; font-size: 8.5pt; font-family: Arial, sans-serif;
+}
+
+/* ── Layout ── */
+.layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  padding: 20px 28px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.full-width { grid-column: 1 / -1; }
+
+/* Portrait / narrow screens: stack the two columns instead of side-by-side */
+@media (orientation: portrait), (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+    padding: 16px 14px;
+    gap: 16px;
+  }
+  .top-bar { padding: 12px 16px; flex-wrap: wrap; }
+  .clock-time { font-size: 26pt; }
+  .clock-btns { gap: 8px; }
+  .btn-clock { padding: 14px 6px; font-size: 10pt; }
+}
+
+/* ── Card ── */
+.card {
+  background: #fff; border-radius: 8px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.09);
+  overflow: hidden;
+}
+.card-head {
+  background: #2E75B6; color: #fff;
+  padding: 11px 18px; font-size: 10pt; font-weight: bold;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-head-green { background: #1a7a4a; }
+.card-body { padding: 18px; }
+
+/* ── Clock ── */
+.clock-wrap { text-align: center; padding: 10px 0 22px; }
+.clock-date { font-size: 9.5pt; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+.clock-time { font-size: 34pt; font-weight: bold; color: #1F4E79; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+.clock-sub { font-size: 8.5pt; color: #999; margin-top: 4px; }
+
+.today-status {
+  background: #f2f7ff; border: 1.5px solid #C5D8EC; border-radius: 6px;
+  padding: 12px 14px; margin-bottom: 16px; font-size: 9.5pt; color: #333;
+  text-align: center;
+}
+.today-status .ts-label { font-size: 8pt; font-weight: bold; color: #1F4E79; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+.today-status .ts-row { display: flex; justify-content: center; gap: 22px; }
+.today-status .ts-item .val { font-weight: bold; font-size: 12pt; color: #1F4E79; }
+.today-status .ts-item .val.pending { color: #bbb; }
+.today-status .ts-item .lbl { font-size: 7.5pt; color: #888; text-transform: uppercase; letter-spacing: .3px; }
+.today-status .ts-hours { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #BDD7EE; font-size: 9pt; color: #1a7a4a; font-weight: bold; }
+
+.clock-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-clock {
+  padding: 18px 8px; border-radius: 8px; border: none;
+  font-size: 11pt; font-weight: bold; cursor: pointer;
+  font-family: Arial, sans-serif; color: #fff;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transition: opacity .15s, transform .1s;
+}
+.btn-clock .ic { font-size: 18pt; }
+.btn-clock:active { transform: scale(.97); }
+.btn-clock:disabled { background: #dfe6ee !important; color: #aaa !important; cursor: not-allowed; }
+.btn-timein  { background: #1a7a4a; }
+.btn-timein:hover:not(:disabled)  { background: #155e38; }
+.btn-timeout { background: #c0392b; }
+.btn-timeout:hover:not(:disabled) { background: #a03024; }
+
+/* ── Buttons (shared) ── */
+.btn-sm {
+  padding: 6px 13px; border-radius: 4px;
+  font-size: 9pt; font-weight: bold;
+  cursor: pointer; font-family: Arial, sans-serif;
+  border: none;
+}
+.btn-green  { background: #1a7a4a; color: #fff; }
+.btn-green:hover { background: #155e38; }
+.btn-outline-red { background: #fff; color: #c0392b; border: 1.5px solid #c0392b; }
+.btn-outline-blue { background: #fff; color: #1F4E79; border: 1.5px solid #1F4E79; }
+
+/* ── Tables ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+thead th {
+  background: #1F4E79; color: #fff;
+  padding: 8px 10px; text-align: left;
+  font-size: 8.5pt; white-space: nowrap;
+}
+tbody tr:nth-child(even) td { background: #f2f7ff; }
+tbody tr:hover td { background: #e3eef9; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid #dde6f0; }
+.amt-green { text-align: center; font-weight: bold; color: #1a7a4a; }
+.del-btn { background: none; border: none; cursor: pointer; color: #c0392b; font-size: 12pt; padding: 0 4px; }
+
+/* ── Badge ── */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: bold; }
+.badge-complete  { background: #E8F5E9; color: #1a7a4a; }
+.badge-pending   { background: #fff3cd; color: #856404; }
+.badge-late      { background: #fde8e8; color: #c0392b; }
+
+/* ── Access code table ── */
+.code-input {
+  width: 100%; max-width: 120px;
+  padding: 6px 8px; border: 1.5px solid #C5D8EC; border-radius: 5px;
+  font-size: 10pt; font-family: 'Courier New', monospace;
+  letter-spacing: 1.5px; text-transform: uppercase; text-align: center;
+  color: #1F4E79; font-weight: bold; outline: none;
+  transition: border-color .15s, background .15s;
+}
+.code-input:focus { border-color: #1F4E79; }
+.code-input.saved  { border-color: #1a7a4a; background: #E8F5E9; }
+.code-input.dup    { border-color: #c0392b; background: #fde8e8; }
+.code-hint { font-size: 8.5pt; color: #888; margin-top: 2px; }
+.code-status { font-size: 8pt; font-weight: bold; margin-left: 6px; }
+.code-status.ok  { color: #1a7a4a; }
+.code-status.err { color: #c0392b; }
+
+/* ── Filter row ── */
+.filter-row { display: flex; gap: 10px; align-items: center; padding: 12px 18px 0; flex-wrap: wrap; }
+.filter-row select, .filter-row input[type=date] {
+  padding: 7px 10px; border: 1.5px solid #C5D8EC; border-radius: 5px;
+  font-size: 9pt; font-family: Arial, sans-serif; color: #1a1a1a; background: #fff; outline: none;
+}
+.filter-row select:focus, .filter-row input:focus { border-color: #1F4E79; }
+.filter-row label { font-size: 8pt; font-weight: bold; color: #444; text-transform: uppercase; letter-spacing: .3px; }
+
+/* ── Empty ── */
+.empty-msg { text-align: center; color: #aaa; padding: 28px; font-size: 9.5pt; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: #1a7a4a; color: #fff;
+  padding: 12px 20px; border-radius: 6px;
+  font-size: 10pt; font-weight: bold;
+  box-shadow: 0 2px 12px rgba(0,0,0,.2);
+  opacity: 0; transition: opacity .3s;
+  pointer-events: none; z-index: 9999;
+}
+.toast.show { opacity: 1; }
+
+/* ── Nav link back to portal ── */
+.portal-link {
+  font-size: 8.5pt; color: #cfe0f0; text-decoration: none; margin-left: 14px;
+  border-left: 1px solid rgba(255,255,255,.3); padding-left: 14px;
+}
+.portal-link:hover { color: #fff; }
+
+@media print {
+  body > *:not(.layout) { display: none !important; }
+  .no-print { display: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Setup banner (shown when ATTENDANCE_SCRIPT_URL not configured) ── -->
+<div id="setup-banner" class="setup-banner" style="display:none;">
+  ⚠️ &nbsp;<span><strong>Google Sheets not connected.</strong>
+  Data is saved locally on this device only.
+  To sync across devices, open <code>Time_In_Out_Form.html</code> in a text editor,
+  paste your Apps Script URL into <code>ATTENDANCE_SCRIPT_URL</code>, and save.
+  &nbsp;<a href="#" onclick="document.getElementById('setup-banner').style.display='none';return false;">Dismiss</a>
+  </span>
+</div>
+
+<!-- ── Status bar ── -->
+<div class="status-bar" id="status-bar">
+  <div class="spinner" id="status-spinner" style="display:none;"></div>
+  <span id="status-msg"></span>
+</div>
+
+<!-- ── Login ── -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="logo">HR</div>
+    <h2>Time In / Time Out</h2>
+    <p>Branch Out Resources OPC &nbsp;|&nbsp; Enter your access code</p>
+    <input type="password" id="login-input" placeholder="ACCESS CODE"
+           onkeydown="if(event.key==='Enter') doLogin()"
+           autocomplete="off" spellcheck="false">
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+    <div class="login-error" id="login-error">Invalid access code. Please try again.</div>
+    <div class="login-hint">Same access code as the Employee Filing Portal. Contact HR if you don't have one.</div>
+  </div>
+</div>
+
+<!-- ── Top bar ── -->
+<div class="top-bar">
+  <div>
+    <h1>Time In / Time Out</h1>
+    <p>Daily Attendance &nbsp;|&nbsp; Branch Out Resources OPC</p>
+  </div>
+  <div class="user-badge">
+    <div>
+      <div class="name" id="ub-name"></div>
+      <div class="role" id="ub-role"></div>
+    </div>
+    <button class="btn-logout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ── LEFT: Time Clock ── -->
+  <div>
+    <div class="card">
+      <div class="card-head">Time Clock</div>
+      <div class="card-body">
+
+        <div class="clock-wrap">
+          <div class="clock-date" id="clock-date">—</div>
+          <div class="clock-time" id="clock-time">--:--:--</div>
+          <div class="clock-sub">Philippine Standard Time</div>
+        </div>
+
+        <div class="today-status">
+          <div class="ts-label">Today's Status</div>
+          <div class="ts-row">
+            <div class="ts-item">
+              <div class="val pending" id="ts-timein">—</div>
+              <div class="lbl">Time In</div>
+            </div>
+            <div class="ts-item">
+              <div class="val pending" id="ts-timeout">—</div>
+              <div class="lbl">Time Out</div>
+            </div>
+          </div>
+          <div class="ts-hours" id="ts-hours" style="display:none;"></div>
+        </div>
+
+        <div class="clock-btns">
+          <button class="btn-clock btn-timein" id="btn-timein" onclick="doTimeIn()">
+            <span class="ic">▶</span> Time In
+          </button>
+          <button class="btn-clock btn-timeout" id="btn-timeout" onclick="doTimeOut()" disabled>
+            <span class="ic">■</span> Time Out
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Employee selector (admin only) ── -->
+    <div class="card" id="admin-select-card" style="margin-top:20px; display:none;">
+      <div class="card-head card-head-green">Clock In For</div>
+      <div class="card-body">
+        <div style="font-size:8pt;font-weight:bold;color:#444;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Employee</div>
+        <select id="admin-emp-select" onchange="onAdminEmpChange()"
+                style="width:100%; padding:9px 10px; border:1.5px solid #C5D8EC; border-radius:5px; font-size:10pt; font-family:Arial, sans-serif; color:#1a1a1a; background:#fff; outline:none;"></select>
+        <div style="font-size:8.5pt;color:#888;margin-top:8px;">As admin, you can record time in/out on behalf of any employee (e.g. if they forget to log in themselves).</div>
+      </div>
+    </div>
+
+    <!-- ── Access Codes table (admin only) ── -->
+    <div class="card" id="access-codes-card" style="margin-top:20px; display:none;">
+      <div class="card-head card-head-green">Employee Access Codes</div>
+      <div class="card-body" style="padding:0;">
+        <div class="table-wrap">
+          <table id="code-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Position</th>
+                <th style="text-align:center;">Access Code</th>
+              </tr>
+            </thead>
+            <tbody id="code-table-body"></tbody>
+          </table>
+        </div>
+        <div style="padding:12px 18px 16px;font-size:8.5pt;color:#888;">
+          Type a new 4-character code and press Enter or click away to save. Share the assigned code with the employee privately — it's the same code they use to sign in here and on the Employee Filing Portal.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: Attendance Log ── -->
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <span>Attendance Log</span>
+        <div style="display:flex;gap:8px;" id="admin-log-btns">
+          <button class="btn-sm btn-outline-red"  onclick="clearAttLog()">Clear Log</button>
+          <button class="btn-sm btn-outline-blue" onclick="loadAttLog()" id="sync-btn">↻ Sync</button>
+          <button class="btn-sm btn-green"        onclick="exportToExcel()">⬇ Export to Excel</button>
+        </div>
+      </div>
+      <div class="filter-row" id="filter-row" style="display:none;">
+        <label>Employee</label>
+        <select id="filter-emp" onchange="renderAttLog()"></select>
+        <label>Date</label>
+        <input type="date" id="filter-date" onchange="renderAttLog()">
+        <button class="btn-sm btn-outline-blue" onclick="clearFilters()">Clear Filters</button>
+      </div>
+      <div class="card-body" style="padding:0; margin-top:14px;">
+        <div class="table-wrap">
+          <table id="att-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Employee</th>
+                <th>Time In</th>
+                <th>Time Out</th>
+                <th style="text-align:center;">Hours Worked</th>
+                <th>Status</th>
+                <th id="del-col-header"></th>
+              </tr>
+            </thead>
+            <tbody id="att-body"></tbody>
+          </table>
+          <div class="empty-msg" id="empty-msg">No attendance records yet. Time in to get started.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end .layout -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Google Sheets Configuration — Attendance (separate Sheet, separate script) ───
+// Paste the Web app URL from your NEW Attendance Apps Script deployment below.
+// This is intentionally a different variable/Sheet from the OT/Offset and Leave
+// scripts, so attendance syncing can never accidentally read/write those sheets.
+const ATTENDANCE_SCRIPT_URL    = 'https://script.google.com/macros/s/AKfycby9MSe1XQeyO2IGYq-NQh3WbjIlBQuVl9mrJSw_dPS7CUYggeOYYYrP2mU01OjdyXXroQ/exec'; // Attendance Apps Script /exec URL
+const ATTENDANCE_SHARED_SECRET = 'DT2026'; // must match SECRET in Attendance_AppScript.gs
+const USE_SHEETS = ATTENDANCE_SCRIPT_URL.trim() !== '';
+
+// ─── Google Sheets API ───────────────────────────────────────────────────────
+async function sheetsPost(params) {
+  const fd = new FormData();
+  fd.append('secret', ATTENDANCE_SHARED_SECRET);
+  Object.entries(params).forEach(([k, v]) => fd.append(k, typeof v === 'object' ? JSON.stringify(v) : v));
+  const r = await fetch(ATTENDANCE_SCRIPT_URL, {method: 'POST', body: fd});
+  return r.json();
+}
+async function sheetsGet(params) {
+  const url = new URL(ATTENDANCE_SCRIPT_URL);
+  url.searchParams.set('secret', ATTENDANCE_SHARED_SECRET);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const r = await fetch(url.toString());
+  return r.json();
+}
+
+// ─── Status bar ───────────────────────────────────────────────────────────────
+function setStatus(state, msg) {
+  const bar = document.getElementById('status-bar');
+  const sp  = document.getElementById('status-spinner');
+  const txt = document.getElementById('status-msg');
+  bar.className = 'status-bar ' + state;
+  txt.textContent = msg;
+  sp.style.display = state === 'loading' ? 'block' : 'none';
+  if (state === 'ok') setTimeout(() => { bar.className = 'status-bar'; }, 2500);
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const ADMIN_CODE = 'ADMIN2026';
+
+// Same roster as the Employee Filing Portal, kept in sync via the shared
+// 'ot_employees' localStorage key when opened in the same browser. Falls back
+// to this list (and matching access codes) if that key isn't present yet.
+const DEFAULT_EMPLOYEES = [
+  {no:1,  name:'Rosario Maria Belen Cercado', position:'Finance Manager',               type:'Regular',      code:'RB41'},
+  {no:2,  name:'Ariane Cercado',              position:'Operations & Admin Manager',    type:'Regular',      code:'AC82'},
+  {no:3,  name:'Daniel Cercado',              position:'Technical Officer',             type:'Regular',      code:'DC53'},
+  {no:4,  name:'Ronnel James Lopez',          position:'Operations Assistant',          type:'Regular',      code:'RL74'},
+  {no:5,  name:'Jhon Rave Perez',             position:'Operations Assistant',          type:'Regular',      code:'JP25'},
+  {no:6,  name:'Revecah Erpelo',              position:'Admin Associate',               type:'Probationary', code:'RE96'},
+  {no:7,  name:'Gerlie Mangaran',             position:'Procurement Associate',         type:'Probationary', code:'GM37'},
+  {no:8,  name:'Nathaniel Asuncion',          position:'Executive Assistant',           type:'Probationary', code:'NA68'},
+  {no:9,  name:'Richmon Jundis',              position:'Social Media Manager',          type:'Probationary', code:'RJ19'},
+  {no:10, name:'Nicka Jane Sapalaran',        position:'Nursery Operations Specialist', type:'Probationary', code:'NS50'},
+  {no:11, name:'Julbert Alba',                position:'Admin Assistant',               type:'Probationary', code:'JA81'},
+];
+
+function loadEmployees() {
+  const saved = localStorage.getItem('ot_employees');
+  if (saved) {
+    try { return JSON.parse(saved); } catch(e) { /* fall through */ }
+  }
+  return JSON.parse(JSON.stringify(DEFAULT_EMPLOYEES));
+}
+// Shared with the Employee Filing Portal — writing here updates the same
+// 'ot_employees' key that portal reads from, so a code change is visible
+// there too the next time it loads.
+function saveEmployees() {
+  localStorage.setItem('ot_employees', JSON.stringify(employees));
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let employees   = loadEmployees();
+let attLog      = JSON.parse(localStorage.getItem('attendance_log') || '[]');
+let currentUser = null;
+let adminActingEmpNo = null; // which employee the admin is currently clocking for
+
+function fmtTime(t) { // '08:03' -> '8:03 AM'
+  if (!t) return '—';
+  let [h, m] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return h + ':' + String(m).padStart(2,'0') + ' ' + ap;
+}
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function nowHM() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+// ─── Hours calculation (mirrors the OT Filing System's logic) ────────────────
+function calcHoursFromTime(timeIn, timeOut) {
+  if (!timeIn || !timeOut) return null;
+  const toMins = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  let inM  = toMins(timeIn);
+  let outM = toMins(timeOut);
+  if (outM <= inM) outM += 24 * 60; // overnight shift
+  const rawMins     = outM - inM;
+  const lunchDeduct = rawMins > 5 * 60 ? 60 : 0;
+  const workedMins  = rawMins - lunchDeduct;
+  return Math.round((workedMins / 60) * 100) / 100;
+}
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+function buildAccessCodes() {
+  const map = { [ADMIN_CODE]: { role:'admin', empNo:null } };
+  employees.forEach(e => {
+    if (e.code) map[e.code.toUpperCase()] = { role:'employee', empNo:e.no };
+  });
+  return map;
+}
+
+function applyLogin(code) {
+  const codes = buildAccessCodes();
+  const match = codes[code];
+  if (!match) return false;
+
+  currentUser = { ...match };
+  if (match.role === 'employee') {
+    currentUser.emp = employees.find(e => e.no === match.empNo);
+    if (!currentUser.emp) return false;
+  }
+
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('login-error').style.display   = 'none';
+
+  if (currentUser.role === 'admin') {
+    document.getElementById('ub-name').textContent = 'Administrator';
+    document.getElementById('ub-role').textContent = 'Full access';
+  } else {
+    document.getElementById('ub-name').textContent = currentUser.emp.name;
+    document.getElementById('ub-role').textContent = currentUser.emp.position + ' · ' + currentUser.emp.type;
+  }
+
+  applyUserRestrictions();
+  if (!USE_SHEETS) document.getElementById('setup-banner').style.display = 'flex';
+  loadAttLog();
+  return true;
+}
+
+async function doLogin() {
+  const code = document.getElementById('login-input').value.trim().toUpperCase();
+  const ok = applyLogin(code);
+  if (!ok) {
+    const err = document.getElementById('login-error');
+    err.textContent = 'Invalid code. Try ADMIN2026 (admin) or your 4-character employee code.';
+    err.style.display = 'block';
+    document.getElementById('login-input').value = '';
+    document.getElementById('login-input').focus();
+    return;
+  }
+  localStorage.setItem('ot_session', code); // shared session with the Employee Filing Portal
+}
+
+function logout() {
+  localStorage.removeItem('ot_session');
+  currentUser = null;
+  adminActingEmpNo = null;
+  document.getElementById('login-input').value = '';
+  document.getElementById('login-error').style.display = 'none';
+  document.getElementById('login-overlay').style.display = 'flex';
+  document.getElementById('ub-name').textContent = '';
+  document.getElementById('ub-role').textContent = '';
+  document.getElementById('admin-select-card').style.display = 'none';
+  document.getElementById('access-codes-card').style.display = 'none';
+  document.getElementById('filter-row').style.display = 'none';
+  document.getElementById('att-body').innerHTML = '';
+  document.getElementById('empty-msg').style.display = 'block';
+}
+
+function applyUserRestrictions() {
+  const isAdmin = currentUser.role === 'admin';
+  document.getElementById('admin-log-btns').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('admin-select-card').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('access-codes-card').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('filter-row').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('del-col-header').textContent = '';
+
+  if (isAdmin) {
+    const sel = document.getElementById('admin-emp-select');
+    sel.innerHTML = employees.map(e => `<option value="${e.no}">${e.name}</option>`).join('');
+    adminActingEmpNo = employees.length ? employees[0].no : null;
+
+    const fsel = document.getElementById('filter-emp');
+    fsel.innerHTML = '<option value="">— All Employees —</option>' +
+      employees.map(e => `<option value="${e.no}">${e.name}</option>`).join('');
+
+    renderCodeTable();
+  }
+  updateTodayStatus();
+}
+
+// ─── Employee access codes (admin only) ───────────────────────────────────────
+function renderCodeTable() {
+  const tbody = document.getElementById('code-table-body');
+  tbody.innerHTML = employees.map((e, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td style="font-weight:bold;color:#1F4E79;">${e.name}</td>
+      <td>${e.position}</td>
+      <td style="text-align:center;">
+        <input type="text" class="code-input" id="code-input-${e.no}"
+               value="${e.code || ''}" maxlength="8"
+               oninput="this.value = this.value.toUpperCase(); clearCodeStatus(${e.no});"
+               onkeydown="if(event.key==='Enter'){ this.blur(); }"
+               onchange="saveEmpCode(${e.no}, this)">
+        <span class="code-status" id="code-status-${e.no}"></span>
+      </td>
+    </tr>`).join('');
+}
+
+function clearCodeStatus(empNo) {
+  const input  = document.getElementById('code-input-' + empNo);
+  const status = document.getElementById('code-status-' + empNo);
+  input.classList.remove('saved', 'dup');
+  status.textContent = '';
+  status.className = 'code-status';
+}
+
+function saveEmpCode(empNo, inputEl) {
+  const status = document.getElementById('code-status-' + empNo);
+  const raw = inputEl.value.trim().toUpperCase();
+  const emp = employees.find(e => e.no === empNo);
+  if (!emp) return;
+
+  if (!raw) {
+    inputEl.classList.add('dup');
+    status.textContent = 'Code required';
+    status.className = 'code-status err';
+    inputEl.value = emp.code || '';
+    return;
+  }
+  if (raw === ADMIN_CODE) {
+    inputEl.classList.add('dup');
+    status.textContent = 'Reserved for admin';
+    status.className = 'code-status err';
+    inputEl.value = emp.code || '';
+    return;
+  }
+  const clash = employees.find(e => e.no !== empNo && (e.code || '').toUpperCase() === raw);
+  if (clash) {
+    inputEl.classList.add('dup');
+    status.textContent = 'Already used by ' + clash.name.split(' ')[0];
+    status.className = 'code-status err';
+    inputEl.value = emp.code || '';
+    return;
+  }
+
+  const changed = (emp.code || '').toUpperCase() !== raw;
+  emp.code = raw;
+  inputEl.value = raw;
+  saveEmployees();
+  inputEl.classList.remove('dup');
+  inputEl.classList.add('saved');
+  status.textContent = 'Saved ✓';
+  status.className = 'code-status ok';
+  setTimeout(() => { inputEl.classList.remove('saved'); status.textContent = ''; }, 2000);
+  if (changed) showToast('Access code for ' + emp.name + ' set to ' + raw);
+}
+
+function onAdminEmpChange() {
+  adminActingEmpNo = parseInt(document.getElementById('admin-emp-select').value, 10);
+  updateTodayStatus();
+}
+
+function activeEmpNo() {
+  return currentUser.role === 'admin' ? adminActingEmpNo : currentUser.empNo;
+}
+function activeEmpName() {
+  if (currentUser.role === 'admin') {
+    const e = employees.find(e => e.no === adminActingEmpNo);
+    return e ? e.name : '—';
+  }
+  return currentUser.emp.name;
+}
+
+// ─── Live clock ───────────────────────────────────────────────────────────────
+function tickClock() {
+  const d = new Date();
+  document.getElementById('clock-date').textContent = d.toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  document.getElementById('clock-time').textContent = d.toLocaleTimeString('en-PH', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+// ─── Today's status panel ─────────────────────────────────────────────────────
+function getTodayEntry(empNo) {
+  return attLog.find(e => e.empNo === empNo && e.date === todayStr());
+}
+
+function updateTodayStatus() {
+  if (!currentUser) return;
+  const empNo = activeEmpNo();
+  const entry = empNo != null ? getTodayEntry(empNo) : null;
+
+  const tiEl = document.getElementById('ts-timein');
+  const toEl = document.getElementById('ts-timeout');
+  const hEl  = document.getElementById('ts-hours');
+  const btnIn  = document.getElementById('btn-timein');
+  const btnOut = document.getElementById('btn-timeout');
+
+  if (entry && entry.timeIn) {
+    tiEl.textContent = fmtTime(entry.timeIn);
+    tiEl.classList.remove('pending');
+    btnIn.disabled = true;
+  } else {
+    tiEl.textContent = '—';
+    tiEl.classList.add('pending');
+    btnIn.disabled = false;
+  }
+
+  if (entry && entry.timeOut) {
+    toEl.textContent = fmtTime(entry.timeOut);
+    toEl.classList.remove('pending');
+    btnOut.disabled = true;
+    btnIn.disabled  = true; // day already complete
+  } else {
+    toEl.textContent = '—';
+    toEl.classList.add('pending');
+    btnOut.disabled = !(entry && entry.timeIn);
+  }
+
+  if (entry && entry.timeIn && entry.timeOut) {
+    hEl.style.display = 'block';
+    hEl.textContent = 'Hours Worked Today: ' + entry.hours + ' hrs';
+  } else {
+    hEl.style.display = 'none';
+  }
+}
+
+// ─── Time In / Time Out actions ───────────────────────────────────────────────
+async function doTimeIn() {
+  const empNo = activeEmpNo();
+  if (empNo == null) return;
+  if (getTodayEntry(empNo)) { showToast('Already timed in today.'); updateTodayStatus(); return; }
+
+  const emp = employees.find(e => e.no === empNo);
+  const entry = {
+    id: Date.now(),
+    empNo, empName: emp ? emp.name : '—',
+    date: todayStr(), timeIn: nowHM(), timeOut: '', hours: '',
+    status: 'Pending',
+  };
+
+  if (USE_SHEETS) {
+    setStatus('loading', 'Recording time in…');
+    try {
+      const result = await sheetsPost({ action: 'timeIn', data: entry });
+      if (result.error) throw new Error(result.error);
+      if (result.entry) Object.assign(entry, result.entry);
+      setStatus('ok', 'Synced ✓');
+    } catch(err) {
+      setStatus('error', 'Could not reach Google Sheets — saved locally only. (' + err.message + ')');
+    }
+  }
+
+  attLog.unshift(entry);
+  localStorage.setItem('attendance_log', JSON.stringify(attLog));
+  updateTodayStatus();
+  renderAttLog();
+  showToast('Timed in at ' + fmtTime(entry.timeIn) + ' — ' + entry.empName);
+}
+
+async function doTimeOut() {
+  const empNo = activeEmpNo();
+  if (empNo == null) return;
+  const entry = getTodayEntry(empNo);
+  if (!entry || !entry.timeIn) { showToast('Please time in first.'); return; }
+  if (entry.timeOut) { showToast('Already timed out today.'); return; }
+
+  const timeOut = nowHM();
+  const hours = calcHoursFromTime(entry.timeIn, timeOut);
+
+  if (USE_SHEETS) {
+    setStatus('loading', 'Recording time out…');
+    try {
+      const result = await sheetsPost({ action: 'timeOut', id: entry.id, empNo, date: entry.date, timeOut, hours });
+      if (result.error) throw new Error(result.error);
+      setStatus('ok', 'Synced ✓');
+    } catch(err) {
+      setStatus('error', 'Could not reach Google Sheets — saved locally only. (' + err.message + ')');
+    }
+  }
+
+  entry.timeOut = timeOut;
+  entry.hours   = hours;
+  entry.status  = 'Complete';
+  localStorage.setItem('attendance_log', JSON.stringify(attLog));
+  updateTodayStatus();
+  renderAttLog();
+  showToast('Timed out at ' + fmtTime(timeOut) + ' — ' + hours + ' hrs worked');
+}
+
+// ─── Attendance log ────────────────────────────────────────────────────────────
+async function loadAttLog() {
+  if (!currentUser) return;
+  if (USE_SHEETS) {
+    setStatus('loading', 'Loading attendance from Google Sheets…');
+    try {
+      const params = currentUser.role === 'employee' ? { empNo: currentUser.empNo } : {};
+      const result = await sheetsGet(params);
+      if (result.error) throw new Error(result.error);
+      attLog = result.entries || [];
+      localStorage.setItem('attendance_log', JSON.stringify(attLog));
+      setStatus('ok', 'Synced with Google Sheets ✓');
+    } catch(err) {
+      setStatus('error', 'Could not reach Google Sheets — showing local data. (' + err.message + ')');
+      attLog = JSON.parse(localStorage.getItem('attendance_log') || '[]');
+    }
+  } else {
+    attLog = JSON.parse(localStorage.getItem('attendance_log') || '[]');
+  }
+  updateTodayStatus();
+  renderAttLog();
+}
+
+function clearFilters() {
+  document.getElementById('filter-emp').value = '';
+  document.getElementById('filter-date').value = '';
+  renderAttLog();
+}
+
+function renderAttLog() {
+  if (!currentUser) return;
+  const tbody   = document.getElementById('att-body');
+  const empty   = document.getElementById('empty-msg');
+  const isAdmin = currentUser.role === 'admin';
+
+  let visible = isAdmin ? [...attLog] : attLog.filter(e => e.empNo === currentUser.empNo);
+
+  if (isAdmin) {
+    const fEmp  = document.getElementById('filter-emp').value;
+    const fDate = document.getElementById('filter-date').value;
+    if (fEmp)  visible = visible.filter(e => String(e.empNo) === fEmp);
+    if (fDate) visible = visible.filter(e => e.date === fDate);
+  }
+
+  // Most recent first
+  visible.sort((a, b) => (b.date + (b.timeIn||'')).localeCompare(a.date + (a.timeIn||'')));
+
+  if (visible.length === 0) {
+    tbody.innerHTML = ''; empty.style.display = 'block'; return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = visible.map((e, i) => {
+    const complete = !!e.timeOut;
+    const badge = complete
+      ? `<span class="badge badge-complete">Complete</span>`
+      : `<span class="badge badge-pending">Pending Time Out</span>`;
+    return `
+    <tr>
+      <td>${visible.length - i}</td>
+      <td style="white-space:nowrap">${e.date}</td>
+      <td style="white-space:nowrap;font-weight:bold;color:#1F4E79;">${e.empName}</td>
+      <td style="white-space:nowrap">${fmtTime(e.timeIn)}</td>
+      <td style="white-space:nowrap">${e.timeOut ? fmtTime(e.timeOut) : '—'}</td>
+      <td class="amt-green">${e.hours !== '' && e.hours != null ? e.hours : '—'}</td>
+      <td style="white-space:nowrap">${badge}</td>
+      <td style="white-space:nowrap">${isAdmin ? `<button class="del-btn" onclick="deleteEntry(${e.id})" title="Remove">×</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function deleteEntry(id) {
+  if (!confirm('Remove this attendance record?')) return;
+  if (USE_SHEETS) {
+    setStatus('loading', 'Deleting…');
+    try {
+      const result = await sheetsPost({ action: 'delete', id });
+      if (result.error) throw new Error(result.error);
+      setStatus('ok', 'Deleted ✓');
+    } catch(err) {
+      setStatus('error', 'Could not delete from Sheets — removed locally only.');
+    }
+  }
+  attLog = attLog.filter(e => e.id !== id);
+  localStorage.setItem('attendance_log', JSON.stringify(attLog));
+  updateTodayStatus();
+  renderAttLog();
+}
+
+async function clearAttLog() {
+  if (!confirm('Clear ALL attendance records? This cannot be undone.')) return;
+  if (USE_SHEETS) {
+    setStatus('loading', 'Clearing Google Sheets…');
+    try {
+      const result = await sheetsPost({ action: 'clear' });
+      if (result.error) throw new Error(result.error);
+      setStatus('ok', 'Cleared ✓');
+    } catch(err) {
+      setStatus('error', 'Could not clear Sheets — cleared locally only.');
+    }
+  }
+  attLog = [];
+  localStorage.setItem('attendance_log', JSON.stringify(attLog));
+  updateTodayStatus();
+  renderAttLog();
+  showToast('Attendance log cleared.');
+}
+
+// ─── Export ────────────────────────────────────────────────────────────────────
+function exportToExcel() {
+  const isAdmin = currentUser.role === 'admin';
+  const visible = isAdmin ? attLog : attLog.filter(e => e.empNo === currentUser.empNo);
+  if (visible.length === 0) { showToast('Nothing to export.'); return; }
+
+  const rows = visible.map(e => ({
+    Date: e.date, Employee: e.empName, 'Time In': fmtTime(e.timeIn),
+    'Time Out': e.timeOut ? fmtTime(e.timeOut) : '', 'Hours Worked': e.hours || '',
+    Status: e.timeOut ? 'Complete' : 'Pending Time Out',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:12},{wch:28},{wch:12},{wch:12},{wch:13},{wch:16}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+  XLSX.writeFile(wb, 'Attendance_Log_' + todayStr() + '.xlsx');
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ─── Auto-restore session on refresh / reopen (shared with OT Filing Portal) ──
+(function() {
+  const saved = localStorage.getItem('ot_session');
+  if (saved) applyLogin(saved);
+})();
+</script>
+</body>
+</html>
