@@ -375,7 +375,11 @@ tbody td { padding: 7px 10px; border-bottom: 1px solid #dde6f0; }
 
     <!-- ── Access Codes table (admin only) ── -->
     <div class="card" id="access-codes-card" style="margin-top:20px; display:none;">
-      <div class="card-head card-head-green">Employee Access Codes</div>
+      <div class="card-head card-head-green" style="display:flex; align-items:center; justify-content:space-between;">
+        <span>Employee Access Codes</span>
+        <button type="button" onclick="openAddEmployee()"
+                style="background:#fff; color:#1a7a4a; border:none; border-radius:4px; padding:6px 12px; font-size:9pt; font-weight:bold; cursor:pointer; font-family:Arial, sans-serif;">+ Add Employee</button>
+      </div>
       <div class="card-body" style="padding:0;">
         <div class="table-wrap">
           <table id="code-table">
@@ -393,6 +397,39 @@ tbody td { padding: 7px 10px; border-bottom: 1px solid #dde6f0; }
         <div style="padding:12px 18px 16px;font-size:8.5pt;color:#888;">
           Type a new 4-character code and press Enter or click away to save. Share the assigned code with the employee privately — it's the same code they use to sign in here and on the Employee Filing Portal.
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Add Employee modal (admin only) ── -->
+  <div id="add-emp-overlay" style="display:none; position:fixed; inset:0; background:rgba(31,78,121,.55); z-index:9998; align-items:center; justify-content:center;">
+    <div class="login-box" style="width:360px; text-align:left;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+        <h2 style="margin-bottom:0;">Add Employee</h2>
+        <button type="button" onclick="closeAddEmployee()" style="background:none;border:none;font-size:16pt;color:#999;cursor:pointer;line-height:1;">×</button>
+      </div>
+      <p style="text-align:left; margin-bottom:18px;">An access code will be auto-generated. Share it privately with the employee.</p>
+
+      <div style="font-size:8pt;font-weight:bold;color:#444;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Full Name</div>
+      <input type="text" id="add-emp-name" placeholder="e.g. Juan Dela Cruz" autocomplete="off"
+             style="width:100%; padding:9px 10px; border:1.5px solid #C5D8EC; border-radius:5px; font-size:10pt; font-family:Arial, sans-serif; color:#1a1a1a; outline:none; margin-bottom:12px;">
+
+      <div style="font-size:8pt;font-weight:bold;color:#444;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Position</div>
+      <input type="text" id="add-emp-position" placeholder="e.g. Admin Assistant" autocomplete="off"
+             style="width:100%; padding:9px 10px; border:1.5px solid #C5D8EC; border-radius:5px; font-size:10pt; font-family:Arial, sans-serif; color:#1a1a1a; outline:none; margin-bottom:12px;">
+
+      <div style="font-size:8pt;font-weight:bold;color:#444;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Employment Type</div>
+      <select id="add-emp-type"
+              style="width:100%; padding:9px 10px; border:1.5px solid #C5D8EC; border-radius:5px; font-size:10pt; font-family:Arial, sans-serif; color:#1a1a1a; background:#fff; outline:none; margin-bottom:6px;">
+        <option value="Regular">Regular</option>
+        <option value="Probationary">Probationary</option>
+      </select>
+
+      <div class="login-error" id="add-emp-error" style="text-align:left;"></div>
+
+      <button type="button" class="btn-login" style="margin-top:10px;" onclick="submitAddEmployee()">Save</button>
+      <div class="login-hint" style="text-align:left;">
+        This adds the employee to the same shared list used by the Employee Filing Portal. You can set salary, date hired, and other payroll details there afterward.
       </div>
     </div>
   </div>
@@ -479,7 +516,7 @@ function setStatus(state, msg) {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const ADMIN_CODE = 'ADMIN2026';
+const ADMIN_CODE = 'BORDENDRO26';
 
 // Same roster as the Employee Filing Portal, kept in sync via the shared
 // 'ot_employees' localStorage key when opened in the same browser. Falls back
@@ -589,7 +626,7 @@ async function doLogin() {
   const ok = applyLogin(code);
   if (!ok) {
     const err = document.getElementById('login-error');
-    err.textContent = 'Invalid code. Try ADMIN2026 (admin) or your 4-character employee code.';
+    err.textContent = 'Invalid code. Try your Administrator code or your 4-character employee code.';
     err.style.display = 'block';
     document.getElementById('login-input').value = '';
     document.getElementById('login-input').focus();
@@ -702,6 +739,73 @@ function saveEmpCode(empNo, inputEl) {
   status.className = 'code-status ok';
   setTimeout(() => { inputEl.classList.remove('saved'); status.textContent = ''; }, 2000);
   if (changed) showToast('Access code for ' + emp.name + ' set to ' + raw);
+}
+
+// ─── Add Employee (admin only) ──────────────────────────────────────────────
+function generateAccessCode() {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O to avoid confusion with 1/0
+  const digits  = '0123456789';
+  let code;
+  do {
+    code = letters[Math.floor(Math.random() * letters.length)]
+         + letters[Math.floor(Math.random() * letters.length)]
+         + digits[Math.floor(Math.random() * digits.length)]
+         + digits[Math.floor(Math.random() * digits.length)];
+  } while (code === ADMIN_CODE || employees.some(e => (e.code || '').toUpperCase() === code));
+  return code;
+}
+
+function openAddEmployee() {
+  if (!currentUser || currentUser.role !== 'admin') return;
+  document.getElementById('add-emp-name').value = '';
+  document.getElementById('add-emp-position').value = '';
+  document.getElementById('add-emp-type').value = 'Regular';
+  document.getElementById('add-emp-error').style.display = 'none';
+  document.getElementById('add-emp-overlay').style.display = 'flex';
+  document.getElementById('add-emp-name').focus();
+}
+
+function closeAddEmployee() {
+  document.getElementById('add-emp-overlay').style.display = 'none';
+}
+
+function submitAddEmployee() {
+  const errEl = document.getElementById('add-emp-error');
+  errEl.style.display = 'none';
+
+  const name     = document.getElementById('add-emp-name').value.trim();
+  const position = document.getElementById('add-emp-position').value.trim();
+  const type     = document.getElementById('add-emp-type').value;
+
+  if (!name) {
+    errEl.textContent = 'Full name is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!position) {
+    errEl.textContent = 'Position is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const dup = employees.find(e => e.name.trim().toLowerCase() === name.toLowerCase());
+  if (dup) {
+    errEl.textContent = 'An employee named "' + dup.name + '" already exists.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const nextNo = employees.length ? Math.max(...employees.map(e => e.no)) + 1 : 1;
+  const code   = generateAccessCode();
+  const newEmp = { no: nextNo, name, position, type, code };
+
+  employees.push(newEmp);
+  saveEmployees();
+
+  // Refresh admin dropdowns, filters, and the code table without a full re-login
+  applyUserRestrictions();
+
+  closeAddEmployee();
+  showToast(name + ' added — access code: ' + code + ' (share it privately)');
 }
 
 function onAdminEmpChange() {
